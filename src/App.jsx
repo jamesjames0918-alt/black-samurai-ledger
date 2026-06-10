@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import AuthPage from './AuthPage.jsx';
 
 const GLOBAL_STYLE = `
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700;900&display=swap' );
   :root { --primary: #c0392b; --dark: #121212; --bg-light: #f5f0e8; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background-color: var(--bg-light); font-family: 'Noto Serif TC', serif; color: var(--dark); min-height: 100vh; }
@@ -50,7 +50,7 @@ const GLOBAL_STYLE = `
 const RESERVE_CASH = 5000; // 留存金配置，可修改此數值
 const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxpRCTtrtS30vPP8PwU7eELC17X9QUnYd9RiH_tJ5faOxjnsG7RttbAsCSDEbSnpCP7/exec';
 
-export default function App() {
+export default function App( ) {
   const [user, setUser] = useState(sessionStorage.getItem("current_user"));
   const [view, setView] = useState("home");
   const [loading, setLoading] = useState(false);
@@ -75,15 +75,16 @@ export default function App() {
       const result = await res.json();
       if (result.success && result.items) {
         setConfig(result.items);
+        console.log("Config loaded successfully:", result.items); // For self-check B
       } else {
-        console.error("無法載入配置：", result.error);
-        setConfigError(result.error || "未知錯誤");
-        setConfig([]); // 設置為空陣列以避免後續錯誤
+        console.error("Failed to load config:", result.error);
+        setConfigError(result.error || "Unknown error");
+        setConfig([]); 
       }
     } catch (err) {
-      console.error("載入配置失敗：", err);
-      setConfigError(err.message || "連線錯誤");
-      setConfig([]); // 設置為空陣列以避免後續錯誤
+      console.error("Failed to load config:", err);
+      setConfigError(err.message || "Connection error");
+      setConfig([]); 
     } finally {
       setConfigLoading(false);
     }
@@ -115,8 +116,11 @@ export default function App() {
   };
 
   const runOCR = async () => {
-    if (!images.card || !images.pos || !images.line) return alert("請先上傳三張圖片");
-    if (!config || config.length === 0) return alert("系統配置未載入或為空，請檢查 Google Sheet '設定_品項'。");
+    if (!images.card || !images.pos || !images.line) return alert("Please upload all three images.");
+    if (!config || config.length === 0) {
+      alert("System configuration not loaded or empty. Please check Google Sheet '設定_品項'."); // For self-check C & E
+      return;
+    }
 
     setLoading(true);
     try {
@@ -127,50 +131,53 @@ export default function App() {
       });
       const result = await res.json();
       if (result.success) { 
-        // 格式化日期為 YYYY-MM-DD 以符合 <input type="date">
         let formattedDate = "";
         if (result.data.date) {
           formattedDate = result.data.date.replace(/\//g, '-');
         }
         
-        // 格式化店名，確保帶有「店」字以匹配下拉選單
         let formattedStoreName = "";
         if (result.data.storeName) {
           formattedStoreName = result.data.storeName.endsWith('店') ? result.data.storeName : result.data.storeName + '店';
         }
 
-        // 初始化 data.items，確保所有 config 中的品項都有預設值
         const initialItems = {};
         config.forEach(cfgItem => {
-          if (cfgItem.type === "庫存" || cfgItem.type === "收款" || cfgItem.type === "平台" || cfgItem.type === "外送") {
-            initialItems[cfgItem.name] = {
-              stock: result.data.items?.[cfgItem.name]?.stock || 0,
-              return: result.data.items?.[cfgItem.name]?.return || 0,
-              yesterdayRemain: 0, // 預設為0，如果需要可從歷史數據載入
-              todayRemain: 0
-            };
+          if (cfgItem.enabled) {
+            if (cfgItem.type === "stock") {
+              initialItems[cfgItem.name] = {
+                stock: result.data.items?.[cfgItem.name]?.stock || 0,
+                return: result.data.items?.[cfgItem.name]?.return || 0,
+                yesterdayRemain: 0, 
+                todayRemain: 0
+              };
+            } else if (cfgItem.type === "payment" || cfgItem.type === "platform" || cfgItem.type === "delivery") {
+              initialItems[cfgItem.name] = {
+                stock: result.data.items?.[cfgItem.name]?.stock || 0, // For payment/platform/delivery, 'stock' means amount
+                return: 0 // Not applicable for these types
+              };
+            }
           }
         });
 
         setData({
           ...result.data,
           date: formattedDate,
-          items: initialItems // 使用初始化的品項數據
+          items: initialItems 
         }); 
         
         if (formattedStoreName) {
           setStoreName(formattedStoreName);
         }
 
-        // 初始化細項
         setOtherIncomeItems([{ amount: result.data.finance?.other_income || 0, note: "" }]);
         setOtherExpenseItems([{ amount: result.data.finance?.other_expense || 0, note: "" }]);
         
         setView("result"); 
         window.scrollTo(0,0); 
       }
-      else alert("辨識失敗：" + (result.error || "請重試"));
-    } catch (err) { alert("系統連線錯誤：" + err.message); }
+      else alert("OCR failed: " + (result.error || "Please try again."));
+    } catch (err) { alert("System connection error: " + err.message); }
     finally { setLoading(false); }
   };
 
@@ -189,7 +196,7 @@ export default function App() {
     
     // 遍歷配置中的所有庫存品項
     config.forEach(configItem => {
-      if (configItem.type === "庫存" && data.items && data.items[configItem.name]) {
+      if (configItem.type === "stock" && configItem.enabled && data.items && data.items[configItem.name]) {
         const item = data.items[configItem.name];
         const qty = (item.stock || 0) - (item.return || 0);
         const amount = qty * (configItem.unitPrice || 0);
@@ -199,10 +206,10 @@ export default function App() {
     });
 
     // 計算盒裝支出（如果存在）
-    const boxItem = config.find(item => item.name === "盒裝");
+    const boxItem = config.find(item => item.name === "盒裝" && item.type === "stock");
     let boxExpense = 0;
-    if (boxItem && data.items["盒裝"]) {
-      const boxReturnQty = data.items["盒裝"].stock || 0; // 盒裝的 stock 代表退回的數量
+    if (boxItem && data.items && data.items["盒裝"]) {
+      const boxReturnQty = data.items["盒裝"].stock || 0; 
       boxExpense = boxReturnQty * (boxItem.unitPrice || 0);
     }
     
@@ -222,9 +229,9 @@ export default function App() {
     const actualDiff = posTotal - salesTotal; // 實收誤差 = POS - 應收
     
     // 飯粒溢價計算（如果存在飯粒品項）
-    const riceItem = config.find(item => item.name === "飯粒");
+    const riceItem = config.find(item => item.name === "飯粒" && item.type === "stock");
     let ricePremium = 0;
-    if (riceItem && data.items["飯粒"]) {
+    if (riceItem && data.items && data.items["飯粒"]) {
       const riceQty = (data.items["飯粒"].stock || 0) - (data.items["飯粒"].return || 0);
       ricePremium = Math.round(riceQty * 0.7) * 5; // 假設飯粒溢價計算邏輯
     }
@@ -246,11 +253,11 @@ export default function App() {
     if (!config || !data || !data.items) return errors;
     
     config.forEach(configItem => {
-      if (configItem.type === "庫存" && data.items[configItem.name]) {
+      if (configItem.type === "stock" && configItem.enabled && data.items[configItem.name]) {
         const item = data.items[configItem.name];
         const qty = (item.stock || 0) - (item.return || 0);
         if (qty < 0) {
-          errors.push(`${configItem.name} 的銷售數量不能為負數 (帶貨: ${item.stock || 0}, 退貨: ${item.return || 0})`);
+          errors.push(`${configItem.name} sales quantity cannot be negative (Stock: ${item.stock || 0}, Return: ${item.return || 0}).`);
         }
       }
     });
@@ -274,19 +281,18 @@ export default function App() {
       const resData = await res.json();
       if (resData.success) setHistory(resData.history);
     } catch (err) {
-      alert("無法獲取歷史記錄：" + err.message);
+      alert("Failed to fetch history: " + err.message);
     }
   };
 
   useEffect(() => {
     if (user && !configLoading && !configError) fetchHistory();
-  }, [user, configLoading, configError]); // 依賴 configLoading 和 configError
+  }, [user, configLoading, configError]); 
 
   const submit = async () => {
-    // 先進行數據校驗
     const errors = validateData();
     if (errors.length > 0) {
-      alert("❌ 數據異常，無法同步！\n\n" + errors.join("\n\n") + "\n\n請修正後再試一次。");
+      alert("❌ Data anomaly, cannot sync!\n\n" + errors.join("\n\n") + "\n\nPlease correct before trying again.");
       return;
     }
 
@@ -296,7 +302,7 @@ export default function App() {
         method: "POST", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
-          config, // 傳遞 config 到 submit API
+          config, 
           data, 
           results, 
           editor: user, 
@@ -307,9 +313,17 @@ export default function App() {
         }) 
       });
       const resData = await res.json();
-      if (resData.success) { alert("同步成功！數據已寫入試算表。"); setView("home"); setImages({card:null,pos:null,line:null}); setData(null); setOtherIncomeItems([{ amount: 0, note: "" }]); setOtherExpenseItems([{ amount: 0, note: "" }]); fetchHistory(); }
-      else alert("同步失敗：" + (resData.error || "請檢查連線"));
-    } catch { alert("同步時發生連線錯誤"); }
+      if (resData.success) { 
+        alert("Sync successful! Data written to spreadsheet."); 
+        setView("home"); 
+        setImages({card:null,pos:null,line:null}); 
+        setData(null); 
+        setOtherIncomeItems([{ amount: 0, note: "" }]); 
+        setOtherExpenseItems([{ amount: 0, note: "" }]); 
+        fetchHistory(); 
+      }
+      else alert("Sync failed: " + (resData.error || "Please check connection."));
+    } catch { alert("Connection error during sync."); }
     finally { setLoading(false); }
   };
 
@@ -328,7 +342,7 @@ export default function App() {
       <div className="dashboard">
         <style>{GLOBAL_STYLE}</style>
         <div style={{ textAlign: 'center', padding: '40px', fontSize: '16px', color: '#666' }}>
-          正在載入系統配置...
+          Loading system configuration...
         </div>
       </div>
     );
@@ -340,195 +354,211 @@ export default function App() {
       <div className="dashboard">
         <style>{GLOBAL_STYLE}</style>
         <div style={{ textAlign: 'center', padding: '40px', fontSize: '16px', color: 'red' }}>
-          載入系統配置失敗：{configError}，請檢查 Google Sheet '設定_品項' 或 Apps Script 部署。
+          Failed to load system configuration: {configError}. Please check Google Sheet '設定_品項' or Apps Script deployment.
         </div>
       </div>
     );
   }
 
   // 過濾出庫存品項和收款品項
-  const stockItems = config.filter(item => item.type === "庫存" && item.enabled);
-  const paymentItems = config.filter(item => (item.type === "收款" || item.type === "平台" || item.type === "外送") && item.enabled);
+  const stockItems = config.filter(item => item.type === "stock" && item.enabled);
+  const paymentItems = config.filter(item => (item.type === "payment" || item.type === "platform" || item.type === "delivery") && item.enabled);
 
   return (
     <div className="dashboard">
       <style>{GLOBAL_STYLE}</style>
       <header className="nav-header">
-        <div style={{ fontSize: '22px', fontWeight: '900', letterSpacing: '1px' }}>黑武藏職人營收 <span style={{fontSize:'12px', color:'#c0392b', verticalAlign:'middle'}}>MOBILE v5.6</span></div>
-        <div style={{fontSize:'14px'}}>{user} <span onClick={() => { setUser(null); sessionStorage.clear(); }} style={{ cursor: 'pointer', color: '#c0392b', marginLeft:'5px' }}>[登出]</span></div>
+        <h1>黑武藏職人營收 <span style={{ fontSize: '0.6em', opacity: 0.7 }}>MOBILE v5.6</span></h1>
+        <div>
+          <span>{user}</span>
+          <button onClick={() => { sessionStorage.removeItem("current_user"); sessionStorage.removeItem("user_role"); setUser(null); }} style={{ marginLeft: '10px', padding: '5px 10px', background: '#c0392b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
+        </div>
       </header>
 
       {view === "home" && (
-        <>
-        <div className="report-card" style={{ textAlign: 'center' }}>
-          <h3 style={{marginBottom:'20px', color: '#555'}}>上傳今日營收照片</h3>
+        <div className="report-card">
+          <h2>Upload Today's Revenue Photos</h2>
           <div className="preview-grid">
-            {[
-              {id: 'card', label: '1. 手寫統計卡'},
-              {id: 'pos', label: '2. POS 系統截圖'},
-              {id: 'line', label: '3. LINE PAY 截圖'}
-            ].map(t => (
-              <div key={t.id} className="preview-box">
-                <div className="image-slot" onClick={() => fileInputs[t.id].current.click()}>
-                  {images[t.id] ? <img src={images[t.id]} alt={t.label} /> : <div style={{textAlign:'center', padding:'10px'}}><div style={{fontSize:'30px', marginBottom:'5px'}}>📸</div><div style={{fontSize:'13px'}}>{t.label}</div></div>}
-                  <input type="file" ref={fileInputs[t.id]} hidden accept="image/*" onChange={e => handleFileChange(t.id, e)} />
+            {['card', 'pos', 'line'].map(type => (
+              <div key={type} className="preview-box">
+                <div className="image-slot" onClick={() => fileInputs[type].current.click()}>
+                  {images[type] ? <img src={images[type]} alt={type} /> : <span>Click to Upload {type.toUpperCase()}</span>}
                 </div>
+                <input type="file" ref={fileInputs[type]} style={{ display: 'none' }} onChange={(e) => handleFileChange(type, e)} accept="image/*" />
+                <div className="preview-label">{type.toUpperCase()} Image</div>
               </div>
             ))}
           </div>
-          <button className="submit-btn" disabled={loading} onClick={runOCR}>{loading ? "正在進行 AI 辨識中..." : "開始辨識與自動對帳"}</button>
-        </div>
-
-        <div className="report-card">
-          <h3 style={{marginBottom:'15px'}}>上傳歷史記錄</h3>
+          <button className="submit-btn" onClick={runOCR} disabled={loading}>
+            {loading ? 'Processing...' : 'Start Recognition and Auto Reconciliation'}
+          </button>
+          
+          <h2 style={{ marginTop: '40px', marginBottom: '20px', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>Upload History</h2>
           <div className="table-container">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>店別</th>
-                  <th>日期</th>
-                  <th>上傳者</th>
-                  <th>上傳時間</th>
-                  <th>操作</th>
+                  <th>Store</th>
+                  <th>Date</th>
+                  <th>Uploader</th>
+                  <th>Upload Time</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {history.length > 0 ? history.map((record, idx) => (
-                  <tr key={idx}>
+                {history.length > 0 ? history.map((record, index) => (
+                  <tr key={index}>
                     <td>{record.storeName}</td>
-                    <td>{record.date}</td>
+                    <td>{record.date ? new Date(record.date).toLocaleDateString('zh-TW') : ''}</td>
                     <td>{record.uploadedBy}</td>
                     <td>{formatLocalTime(record.createdAt)}</td>
-                    <td>
-                      <button 
-                        onClick={() => { setSelectedRecord(record); setView("historyDetail"); }}
-                        style={{ padding: '5px 10px', border: '1px solid #ccc', borderRadius: '4px', background: '#f0f0f0', cursor: 'pointer' }}
-                      >檢視</button>
-                    </td>
+                    <td><button onClick={() => setSelectedRecord(record)} style={{ padding: '5px 10px', background: '#3498db', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>View</button></td>
                   </tr>
                 )) : (
-                  <tr><td colSpan="5">無歷史記錄</td></tr>
+                  <tr><td colSpan="5">No history records.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+
+          {selectedRecord && (
+            <div style={{ marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '20px' }}>
+              <h3>Record Details</h3>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.8em', background: '#f5f5f5', padding: '10px', borderRadius: '4px' }}>
+                {JSON.stringify(selectedRecord, null, 2)}
+              </pre>
+              <button onClick={() => setSelectedRecord(null)} style={{ marginTop: '10px', padding: '5px 10px', background: '#95a5a6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Close</button>
+            </div>
+          )}
         </div>
-        </>
       )}
 
       {view === "result" && data && (
-        <>
-          <div className="report-card">
-            <h3 style={{marginBottom:'15px'}}>辨識結果與數據校正</h3>
-            <div style={{display:'flex', gap:'10px', marginBottom:'15px', alignItems:'center'}}>
-              <label>日期:</label>
-              <input type="date" value={data.date} onChange={e => setData(prev => ({...prev, date: e.target.value}))} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}} />
-              <label>店別:</label>
-              <select value={storeName} onChange={e => setStoreName(e.target.value)} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}}>
-                <option value="中正店">中正店</option>
+        <div className="report-card">
+          <h2>Recognition Results & Manual Adjustment</h2>
+          <div style={{ marginBottom: '20px' }}>
+            <label>Date: <input type="date" value={data.date} onChange={(e) => setData(prev => ({ ...prev, date: e.target.value }))} /></label>
+            <label style={{ marginLeft: '20px' }}>Store: 
+              <select value={storeName} onChange={(e) => setStoreName(e.target.value)}>
                 <option value="龜山店">龜山店</option>
+                <option value="中正店">中正店</option>
                 <option value="大竹店">大竹店</option>
               </select>
-            </div>
+            </label>
+          </div>
 
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>品項</th>
-                    <th>帶貨</th>
-                    <th>退貨</th>
-                    <th>數量</th>
-                    <th>金額</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stockItems.map(item => (
+          <h3 style={{ marginTop: '20px', marginBottom: '10px' }}>Stock Items</h3>
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Stock</th>
+                  <th>Return</th>
+                  <th>Unit Price</th>
+                  <th>Sales Qty</th>
+                  <th>Sales Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockItems.map(item => {
+                  const currentItemData = data.items?.[item.name] || { stock: 0, return: 0 };
+                  const salesQty = (currentItemData.stock || 0) - (currentItemData.return || 0);
+                  const salesAmount = salesQty * (item.unitPrice || 0);
+                  return (
                     <tr key={item.id}>
                       <td>{item.name}</td>
-                      <td><input type="number" className="editable-input" value={data.items[item.name]?.stock || 0} onChange={e => updateItem(item.name, 'stock', e.target.value)} /></td>
-                      <td><input type="number" className="editable-input" value={data.items[item.name]?.return || 0} onChange={e => updateItem(item.name, 'return', e.target.value)} /></td>
-                      <td>{(data.items[item.name]?.stock || 0) - (data.items[item.name]?.return || 0)}</td>
-                      <td>${((data.items[item.name]?.stock || 0) - (data.items[item.name]?.return || 0)) * (item.unitPrice || 0)}</td>
+                      <td><input type="number" className="editable-input" value={currentItemData.stock} onChange={(e) => updateItem(item.name, 'stock', e.target.value)} /></td>
+                      <td><input type="number" className="editable-input" value={currentItemData.return} onChange={(e) => updateItem(item.name, 'return', e.target.value)} /></td>
+                      <td>{item.unitPrice}</td>
+                      <td>{salesQty}</td>
+                      <td>{salesAmount}</td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <h4 style={{marginTop:'20px', marginBottom:'10px'}}>其他收入</h4>
-            {otherIncomeItems.map((item, index) => (
-              <div key={index} style={{display:'flex', gap:'10px', marginBottom:'10px', alignItems:'center'}}>
-                <input type="text" placeholder="收入項目" value={item.note} onChange={e => {
-                  const newItems = [...otherIncomeItems];
-                  newItems[index].note = e.target.value;
-                  setOtherIncomeItems(newItems);
-                }} style={{flex:'1', padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}} />
-                <input type="number" placeholder="金額" value={item.amount} onChange={e => {
-                  const newItems = [...otherIncomeItems];
-                  newItems[index].amount = Number(e.target.value);
-                  setOtherIncomeItems(newItems);
-                }} style={{width:'100px', padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}} />
-                <button onClick={() => setOtherIncomeItems(prev => prev.filter((_, i) => i !== index))} style={{padding:'8px 12px', background:'transparent', border:'1px solid #ccc', borderRadius:'4px', cursor:'pointer'}}>移除</button>
-              </div>
-            ))}
-            <button onClick={() => setOtherIncomeItems(prev => [...prev, {amount:0, note:""}])} style={{padding:'8px 12px', background:'#eee', border:'none', borderRadius:'4px', cursor:'pointer', marginBottom:'20px'}}>新增其他收入</button>
-
-            <h4 style={{marginTop:'20px', marginBottom:'10px'}}>其他支出</h4>
-            {otherExpenseItems.map((item, index) => (
-              <div key={index} style={{display:'flex', gap:'10px', marginBottom:'10px', alignItems:'center'}}>
-                <input type="text" placeholder="支出項目" value={item.note} onChange={e => {
-                  const newItems = [...otherExpenseItems];
-                  newItems[index].note = e.target.value;
-                  setOtherExpenseItems(newItems);
-                }} style={{flex:'1', padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}} />
-                <input type="number" placeholder="金額" value={item.amount} onChange={e => {
-                  const newItems = [...otherExpenseItems];
-                  newItems[index].amount = Number(e.target.value);
-                  setOtherExpenseItems(newItems);
-                }} style={{width:'100px', padding:'8px', border:'1px solid #ccc', borderRadius:'4px'}} />
-                <button onClick={() => setOtherExpenseItems(prev => prev.filter((_, i) => i !== index))} style={{padding:'8px 12px', background:'transparent', border:'1px solid #ccc', borderRadius:'4px', cursor:'pointer'}}>移除</button>
-              </div>
-            ))}
-            <button onClick={() => setOtherExpenseItems(prev => [...prev, {amount:0, note:""}])} style={{padding:'8px 12px', background:'#eee', border:'none', borderRadius:'4px', cursor:'pointer', marginBottom:'20px'}}>新增其他支出</button>
-
-            <div className="summary-grid">
-              <div className="report-card">
-                <h4 style={{marginBottom:'10px'}}>支付平台</h4>
-                {paymentItems.map(item => (
-                  <div key={item.id} className="summary-item">
-                    <span>{item.name}</span>
-                    <input type="number" className="editable-input" value={data.items[item.name]?.stock || 0} onChange={e => updateItem(item.name, 'stock', e.target.value)} />
-                  </div>
-                ))}
-              </div>
-
-              <div className="report-card">
-                <h4 style={{marginBottom:'10px'}}>財務總計</h4>
-                <div className="summary-item"><span>POS 總營收</span><span>${results.posTotal}</span></div>
-                <div className="summary-item"><span>實點現金</span><span>${results.cashActual}</span></div>
-                <div className="summary-item"><span>售價應收</span><span>${results.salesTotal}</span></div>
-                <div className="summary-item"><span>實收誤差</span><span style={{color: results.actualDiff !== 0 ? 'red' : 'inherit'}}>${results.actualDiff}</span></div>
-                <div className="summary-item"><span>飯粒溢價</span><span>${results.ricePremium}</span></div>
-                <div className="summary-item"><span>誤差值 (最終)</span><span style={{color: results.finalError !== 0 ? 'red' : 'inherit'}}>${results.finalError}</span></div>
-              </div>
-            </div>
-
-            <button className="submit-btn" disabled={loading} onClick={submit}>{loading ? "正在同步數據..." : "同步至試算表"}</button>
-            <button className="submit-btn" onClick={() => setView("home")} style={{background:'#6c757d', marginTop:'10px'}}>返回首頁</button>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </>
-      )}
 
-      {view === "historyDetail" && selectedRecord && (
-        <div className="report-card">
-          <h3 style={{marginBottom:'15px'}}>歷史記錄詳情</h3>
-          <p>日期: {selectedRecord.date}</p>
-          <p>店別: {selectedRecord.storeName}</p>
-          <p>上傳者: {selectedRecord.uploadedBy}</p>
-          <p>上傳時間: {formatLocalTime(selectedRecord.createdAt)}</p>
-          {/* 這裡可以添加圖片預覽功能，V3.1 再做 */}
-          <button className="submit-btn" onClick={() => setView("home")} style={{background:'#6c757d', marginTop:'20px'}}>返回首頁</button>
+          <h3 style={{ marginTop: '20px', marginBottom: '10px' }}>Payment/Platform/Delivery Items</h3>
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Method</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentItems.map(item => {
+                  const currentItemData = data.items?.[item.name] || { stock: 0 };
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.name}</td>
+                      <td><input type="number" className="editable-input" value={currentItemData.stock} onChange={(e) => updateItem(item.name, 'stock', e.target.value)} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 style={{ marginTop: '20px', marginBottom: '10px' }}>Other Income</h3>
+          {otherIncomeItems.map((item, index) => (
+            <div key={index} className="summary-item">
+              <input type="text" placeholder="Note" value={item.note} onChange={(e) => {
+                const newItems = [...otherIncomeItems];
+                newItems[index].note = e.target.value;
+                setOtherIncomeItems(newItems);
+              }} />
+              <input type="number" placeholder="Amount" value={item.amount} onChange={(e) => {
+                const newItems = [...otherIncomeItems];
+                newItems[index].amount = Number(e.target.value);
+                setOtherIncomeItems(newItems);
+              }} />
+              <button onClick={() => setOtherIncomeItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
+            </div>
+          ))}
+          <button onClick={() => setOtherIncomeItems(prev => [...prev, { amount: 0, note: "" }])}>Add Other Income</button>
+
+          <h3 style={{ marginTop: '20px', marginBottom: '10px' }}>Other Expense</h3>
+          {otherExpenseItems.map((item, index) => (
+            <div key={index} className="summary-item">
+              <input type="text" placeholder="Note" value={item.note} onChange={(e) => {
+                const newItems = [...otherExpenseItems];
+                newItems[index].note = e.target.value;
+                setOtherExpenseItems(newItems);
+              }} />
+              <input type="number" placeholder="Amount" value={item.amount} onChange={(e) => {
+                const newItems = [...otherExpenseItems];
+                newItems[index].amount = Number(e.target.value);
+                setOtherExpenseItems(newItems);
+              }} />
+              <button onClick={() => setOtherExpenseItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
+            </div>
+          ))}
+          <button onClick={() => setOtherExpenseItems(prev => [...prev, { amount: 0, note: "" }])}>Add Other Expense</button>
+
+          <h3 style={{ marginTop: '20px', marginBottom: '10px' }}>Summary</h3>
+          <div className="summary-grid">
+            <div className="summary-item"><span>Item Sales Total:</span><span>{results.salesTotal}</span></div>
+            <div className="summary-item"><span>POS Total Revenue:</span><span>{results.posTotal}</span></div>
+            <div className="summary-item"><span>Actual Difference (POS - Expected):</span><span>{results.actualDiff}</span></div>
+            <div className="summary-item"><span>Actual Cash Count:</span><span>{results.cashActual}</span></div>
+            <div className="summary-item"><span>Reserve Cash:</span><span>{results.reserveCash}</span></div>
+            <div className="summary-item"><span>Register Cash Count (Actual - Reserve):</span><span>{results.registerCash}</span></div>
+            <div className="summary-item"><span>LINEPAY:</span><span>{results.onlineTotal}</span></div>
+            <div className="summary-item"><span>Platform Total (Panda + Uber):</span><span>{results.platformTotal}</span></div>
+            <div className="summary-item"><span>Other Income:</span><span>{results.otherIncome}</span></div>
+            <div className="summary-item"><span>Other Expense:</span><span>{results.otherExpenseTotal}</span></div>
+            <div className="summary-item"><span>Rice Premium:</span><span>{results.ricePremium}</span></div>
+            <div className="summary-item"><span>Final Error:</span><span>{results.finalError}</span></div>
+          </div>
+
+          <button className="submit-btn" onClick={submit} disabled={loading}>
+            {loading ? 'Submitting...' : 'Sync to Google Sheet'}
+          </button>
+          <button className="submit-btn" onClick={() => setView("home")} style={{ background: '#6c757d', marginTop: '10px' }}>Cancel</button>
         </div>
       )}
     </div>
