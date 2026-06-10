@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import AuthPage from './AuthPage.jsx';
 
 const GLOBAL_STYLE = `
@@ -69,31 +69,34 @@ export default function App() {
   const fileInputs = { card: useRef(), pos: useRef(), line: useRef() };
 
   // 從 Apps Script 載入品項配置
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
+    setConfigLoading(true);
+    setConfigError(null);
     try {
       const res = await fetch(`${GOOGLE_SHEET_API_URL}?action=config`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP 錯誤: ${res.status}`);
       
       const result = await res.json();
       if (result.success && result.items && Array.isArray(result.items) && result.items.length > 0) {
         setConfig(result.items);
         console.log("✓ 配置載入成功:", result.items); // For self-check B
       } else {
-        throw new Error(result.error || "配置為空或無效");
+        // 如果 items 為空，但 success 為 true，可能是設定_品項表為空或無有效品項
+        throw new Error(result.error || "配置為空或無效。請檢查 Google Sheet '設定_品項' 是否有資料。");
       }
     } catch (err) {
       console.error("✗ 配置載入失敗:", err);
-      setConfigError(err.message || "連線錯誤");
+      setConfigError(err.message || "連線錯誤。請檢查 Apps Script 部署與權限。");
       setConfig(null);
     } finally {
       setConfigLoading(false);
     }
-  };
+  }, []);
 
   // 頁面載入時自動載入配置
   useEffect(() => {
     loadConfig();
-  }, []);
+  }, [loadConfig]);
 
   // 根據配置建立 PRICES 物件 (useMemo 優化性能)
   const PRICES = useMemo(() => {
@@ -118,7 +121,7 @@ export default function App() {
   const runOCR = async () => {
     if (!images.card || !images.pos || !images.line) return alert("請先上傳三張圖片");
     if (!config || config.length === 0) {
-      alert("系統配置未載入或為空，請檢查 Google Sheet '設定_品項'。"); // For self-check C & E
+      alert("系統配置未載入或為空，請檢查 Google Sheet '設定_品項' 或 Apps Script 部署。"); // For self-check C & E
       return;
     }
 
@@ -286,8 +289,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (user && !configLoading && config && config.length > 0) fetchHistory();
-  }, [user, configLoading, config]); 
+    // 只有在用戶登入、配置載入完成且沒有錯誤、並且配置不為空時才載入歷史紀錄
+    if (user && !configLoading && !configError && config && config.length > 0) {
+      fetchHistory();
+    }
+  }, [user, configLoading, configError, config]); 
 
   const submit = async () => {
     const errors = validateData();
@@ -320,7 +326,7 @@ export default function App() {
         setData(null); 
         setOtherIncomeItems([{ amount: 0, note: "" }]); 
         setOtherExpenseItems([{ amount: 0, note: "" }]); 
-        fetchHistory(); 
+        fetchHistory(); // 重新載入歷史紀錄
       }
       else alert("同步失敗：" + (resData.error || "請檢查連線"));
     } catch { alert("同步時發生連線錯誤"); }
@@ -354,7 +360,11 @@ export default function App() {
       <div className="dashboard">
         <style>{GLOBAL_STYLE}</style>
         <div style={{ textAlign: 'center', padding: '40px', fontSize: '16px', color: 'red' }}>
-          載入系統配置失敗：{configError}，請檢查 Google Sheet '設定_品項' 或 Apps Script 部署。
+          載入系統配置失敗：{configError} <br/>
+          請檢查 Google Sheet '設定_品項' 或 Apps Script 部署。<br/>
+          <button onClick={loadConfig} style={{ marginTop: '15px', padding: '10px 20px', background: '#c0392b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            重新載入配置
+          </button>
         </div>
       </div>
     );
