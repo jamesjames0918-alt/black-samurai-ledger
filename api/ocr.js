@@ -18,10 +18,10 @@ export default async function handler(req, res) {
       return res.status(500).json({ success: false, error: 'OpenAI API Key is missing.' });
     }
     if (!images || !images.card || !images.pos || !images.line) {
-      return res.status(400).json({ success: false, error: 'Missing one or more image files.' });
+      return res.status(400).json({ success: false, error: '缺少一張或多張圖片檔案。' });
     }
     if (!config || !Array.isArray(config) || config.length === 0) {
-      return res.status(400).json({ success: false, error: 'Configuration (config) is missing or empty.' });
+      return res.status(400).json({ success: false, error: '配置 (config) 遺失或為空。' });
     }
 
     // 根據 config 動態生成品項結構和描述
@@ -43,17 +43,17 @@ export default async function handler(req, res) {
 
     let itemsDescription = "";
     if (stockItemsDescription.length > 0) {
-      itemsDescription += `Stock items: ${stockItemsDescription.join('、')}.`;
+      itemsDescription += `庫存品項: ${stockItemsDescription.join('、')}.`;
     }
     if (paymentItemsDescription.length > 0) {
       if (itemsDescription) itemsDescription += " ";
-      itemsDescription += `Payment/Platform/Delivery items: ${paymentItemsDescription.join('、')}.`;
+      itemsDescription += `收款/平台/外送品項: ${paymentItemsDescription.join('、')}.`;
     }
 
-    const systemPrompt = `You are a professional accounting auditor. Extract data from three images (handwritten ledger card, POS screenshot, LinePay screenshot).
+    const systemPrompt = `你是一位專業的會計審計員。請從三張圖片中提取數據（手寫帳本卡、POS 機截圖、LinePay 截圖）。
 ${itemsDescription}
 
-Strictly output JSON in the following format. Fill 0 or empty string if data is missing:
+請嚴格按照以下 JSON 格式輸出。如果數據缺失，請填寫 0 或空字串：
 {
   "date": "YYYY/MM/DD",
   "storeName": "龜山店/中正店/大竹店",
@@ -71,7 +71,7 @@ Strictly output JSON in the following format. Fill 0 or empty string if data is 
   }
 }`; // 確保這裡的 JSON 結構與前端預期一致
 
-    const userContent = [{ type: 'text', text: 'Please analyze the images and output JSON.' }];
+    const userContent = [{ type: 'text', text: '請分析圖片並輸出 JSON。' }];
     for (const key in images) {
       if (images[key]) userContent.push({ type: 'image_url', image_url: { url: images[key] } });
     }
@@ -83,7 +83,7 @@ Strictly output JSON in the following format. Fill 0 or empty string if data is 
         model: 'gpt-4o',
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
         response_format: { type: 'json_object' }
-      } )
+      })
     });
 
     const aiResponse = await response.json();
@@ -92,7 +92,7 @@ Strictly output JSON in the following format. Fill 0 or empty string if data is 
       return res.status(200).json({ success: true, data: JSON.parse(aiResponse.choices[0].message.content) });
     } else {
       console.error("OpenAI API response error:", aiResponse);
-      return res.status(500).json({ success: false, error: "Failed to parse AI response or AI returned an error." });
+      return res.status(500).json({ success: false, error: "無法解析 AI 回應或 AI 返回錯誤。" });
     }
   } catch (err) {
     console.error("OCR API error:", err);
