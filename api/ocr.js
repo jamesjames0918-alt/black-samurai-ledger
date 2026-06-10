@@ -1,47 +1,59 @@
+/**
+ * 黑武藏統計卡帳本 V3.0 - Vercel API (ocr.js)
+ * 負責接收前端圖片與配置，動態生成 AI Prompt，並呼叫 OpenAI 進行 OCR 辨識。
+ * 
+ * 核心功能：
+ * - 根據前端傳遞的 `config` 動態構建 OpenAI 的 `systemPrompt`。
+ * - 確保 AI Prompt 中不包含任何硬編碼的品項名稱。
+ * - 處理圖片數據並傳遞給 OpenAI。
+ * - 解析 OpenAI 回應並返回給前端。
+ */
+
 export default async function handler(req, res) {
   try {
     const { images, config } = req.body || {};
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_API_KEY) return res.status(500).json({ success: false, error: 'API Key missing' });
 
-    // 根據 config 動態生成品項結構
-    let itemsTemplate = {};
-    let itemsDescription = "";
-    
-    if (config && Array.isArray(config)) {
-      const stockItems = config.filter(item => item.type === "庫存");
-      const paymentItems = config.filter(item => item.type === "收款" || item.type === "平台" || item.type === "外送");
-      
-      // 生成品項模板
-      stockItems.forEach(item => {
-        itemsTemplate[item.name] = { stock: 0, return: 0 };
-      });
-      paymentItems.forEach(item => {
-        itemsTemplate[item.name] = { stock: 0 };
-      });
-      
-      // 生成描述文字
-      if (stockItems.length > 0) {
-        itemsDescription = "庫存品項：" + stockItems.map(item => item.name).join("、");
-      }
-    } else {
-      // 預設品項結構 (如果沒有配置，提供一個基礎模板)
-      itemsTemplate = {
-        "飯粒": { stock: 0, return: 0 },
-        "花壽司": { stock: 0, return: 0 },
-        "茶碗蒸": { stock: 0, return: 0 },
-        "味噌湯": { stock: 0, return: 0 },
-        "涼麵": { stock: 0, return: 0 },
-        "優待顆數": { stock: 0, return: 0 },
-        "盒裝": { stock: 0, return: 0 }
-      };
-      itemsDescription = "庫存品項：飯粒、花壽司、茶碗蒸、味噌湯、涼麵、優待顆數、盒裝";
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({ success: false, error: 'OpenAI API Key is missing.' });
+    }
+    if (!images || !images.card || !images.pos || !images.line) {
+      return res.status(400).json({ success: false, error: 'Missing one or more image files.' });
+    }
+    if (!config || !Array.isArray(config) || config.length === 0) {
+      return res.status(400).json({ success: false, error: 'Configuration (config) is missing or empty.' });
     }
 
-    const systemPrompt = `你是一個專業的會計審核員。請從三張圖片（手寫統計卡、POS截圖、LinePay截圖）中提取數據。
+    // 根據 config 動態生成品項結構和描述
+    let itemsTemplate = {};
+    let stockItemsDescription = [];
+    let paymentItemsDescription = [];
+
+    config.forEach(item => {
+      if (item.enabled) {
+        if (item.type === "stock") {
+          itemsTemplate[item.name] = { stock: 0, return: 0 };
+          stockItemsDescription.push(item.name);
+        } else if (item.type === "payment" || item.type === "platform" || item.type === "delivery") {
+          itemsTemplate[item.name] = { stock: 0 }; // 對於收款/平台/外送，只需要一個 stock 欄位表示金額
+          paymentItemsDescription.push(item.name);
+        }
+      }
+    });
+
+    let itemsDescription = "";
+    if (stockItemsDescription.length > 0) {
+      itemsDescription += `Stock items: ${stockItemsDescription.join('、')}.`;
+    }
+    if (paymentItemsDescription.length > 0) {
+      if (itemsDescription) itemsDescription += " ";
+      itemsDescription += `Payment/Platform/Delivery items: ${paymentItemsDescription.join('、')}.`;
+    }
+
+    const systemPrompt = `You are a professional accounting auditor. Extract data from three images (handwritten ledger card, POS screenshot, LinePay screenshot).
 ${itemsDescription}
 
-必須輸出以下格式的 JSON，若無數據則填 0 或空字串：
+Strictly output JSON in the following format. Fill 0 or empty string if data is missing:
 {
   "date": "YYYY/MM/DD",
   "storeName": "龜山店/中正店/大竹店",
@@ -57,9 +69,9 @@ ${itemsDescription}
     "panda": 0,
     "uber": 0
   }
-}`;
+}`; // 確保這裡的 JSON 結構與前端預期一致
 
-    const userContent = [{ type: 'text', text: '請分析圖片並輸出 JSON。' }];
+    const userContent = [{ type: 'text', text: 'Please analyze the images and output JSON.' }];
     for (const key in images) {
       if (images[key]) userContent.push({ type: 'image_url', image_url: { url: images[key] } });
     }
@@ -71,12 +83,19 @@ ${itemsDescription}
         model: 'gpt-4o',
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
         response_format: { type: 'json_object' }
-      })
+      } )
     });
 
     const aiResponse = await response.json();
-    return res.status(200).json({ success: true, data: JSON.parse(aiResponse.choices[0].message.content) });
+
+    if (aiResponse.choices && aiResponse.choices[0] && aiResponse.choices[0].message && aiResponse.choices[0].message.content) {
+      return res.status(200).json({ success: true, data: JSON.parse(aiResponse.choices[0].message.content) });
+    } else {
+      console.error("OpenAI API response error:", aiResponse);
+      return res.status(500).json({ success: false, error: "Failed to parse AI response or AI returned an error." });
+    }
   } catch (err) {
+    console.error("OCR API error:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 }
