@@ -15,17 +15,17 @@ export default async function handler(req, res) {
     // 確保 GOOGLE_SHEET_API_URL 與前端 App.jsx 保持一致
     const GOOGLE_SHEET_API_URL = process.env.GOOGLE_SHEET_API_URL || 'https://script.google.com/macros/s/AKfycbxpRCTtrtS30vPP8PwU7eELC17X9QUnYd9RiH_tJ5faOxjnsG7RttbAsCSDEbSnpCP7/exec';
 
-    if (!config || !Array.isArray(config ) || config.length === 0) {
-      return res.status(400).json({ success: false, error: 'Configuration (config) is missing or empty.' });
+    if (!config || !Array.isArray(config) || config.length === 0) {
+      return res.status(400).json({ success: false, error: '配置 (config) 遺失或為空。' });
     }
     if (!data || !data.items) {
-      return res.status(400).json({ success: false, error: 'Missing data or data.items for submission.' });
+      return res.status(400).json({ success: false, error: '提交數據遺失或 data.items 為空。' });
     }
 
     // 合併項目文字：項目1:100 | 項目2:200
     const formatItems = (items) => (items || [])
       .filter(item => item.note || (Number(item.amount) || 0) > 0) // 過濾掉空備註且金額為0的項目
-      .map(item => `${item.note || 'Unnamed'}:${Number(item.amount) || 0}`)
+      .map(item => `${item.note || '未命名'}:${Number(item.amount) || 0}`)
       .join(' | ');
 
     // 計算其他收支總計
@@ -87,12 +87,12 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, ...result });
     } else {
       const text = await response.text();
-      console.error("Apps Script returned non-JSON response:", text);
-      return res.status(500).json({ success: false, error: "Apps Script did not return a valid JSON response." });
+      console.error("Apps Script 返回非 JSON 響應:", text);
+      return res.status(500).json({ success: false, error: "Apps Script 未返回有效的 JSON 響應。" });
     }
 
   } catch (err) {
-    console.error("Submit API error:", err);
+    console.error("提交 API 錯誤:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 }
